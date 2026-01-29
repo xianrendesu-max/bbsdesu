@@ -1,8 +1,6 @@
-import os
 import json
-import asyncio
 import requests
-import redis.asyncio as redis
+from typing import List
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Request
 from fastapi.responses import HTMLResponse
@@ -12,16 +10,11 @@ from fastapi.concurrency import run_in_threadpool
 # --------------------
 # 設定
 # --------------------
-REDIS_URL = os.getenv("REDIS_URL")
-REDIS_CHANNEL = "senin_chat"
-
-BBS_EXTERNAL_API_BASE_URL = "https://detabase.vercel.app/"
+BBS_EXTERNAL_API_BASE_URL = "https://detabase.vercel.app"
 max_api_wait_time = 5
 
 app = FastAPI()
 templates = Jinja2Templates(directory="templates")
-
-redis_client = redis.from_url(REDIS_URL, decode_responses=True)
 
 # --------------------
 # Utility
@@ -41,6 +34,7 @@ async def fetch_bbs_posts():
         )
         r.raise_for_status()
         return r.json()
+
     return await run_in_threadpool(sync)
 
 
@@ -56,6 +50,7 @@ async def post_new_message(client_ip: str, name: str, body: str):
             timeout=max_api_wait_time
         )
         r.raise_for_status()
+
     await run_in_threadpool(sync)
 
 # --------------------
@@ -63,7 +58,7 @@ async def post_new_message(client_ip: str, name: str, body: str):
 # --------------------
 class WSManager:
     def __init__(self):
-        self.connections: list[WebSocket] = []
+        self.connections: List[WebSocket] = []
 
     async def connect(self, ws: WebSocket):
         await ws.accept()
@@ -80,27 +75,11 @@ class WSManager:
                 await ws.send_text(json.dumps(message))
             except:
                 dead.append(ws)
+
         for ws in dead:
             self.disconnect(ws)
 
 manager = WSManager()
-
-# --------------------
-# Redis Subscriber
-# --------------------
-async def redis_subscriber():
-    pubsub = redis_client.pubsub()
-    await pubsub.subscribe(REDIS_CHANNEL)
-
-    async for msg in pubsub.listen():
-        if msg["type"] != "message":
-            continue
-        data = json.loads(msg["data"])
-        await manager.broadcast(data)
-
-@app.on_event("startup")
-async def startup():
-    asyncio.create_task(redis_subscriber())
 
 # --------------------
 # Routes
@@ -125,28 +104,28 @@ async def api_messages():
 @app.websocket("/ws")
 async def websocket_endpoint(ws: WebSocket):
     await manager.connect(ws)
+
     try:
         while True:
             text = await ws.receive_text()
             payload = json.loads(text)
 
             if payload["type"] == "new_message":
+                # 外部BBSに保存
                 await post_new_message(
                     payload.get("ip", "unknown"),
                     payload["username"],
                     payload["message"]
                 )
 
+                # 全クライアントへ即時配信
                 event = {
                     "type": "new_message",
                     "username": payload["username"],
                     "message": payload["message"]
                 }
 
-                await redis_client.publish(
-                    REDIS_CHANNEL,
-                    json.dumps(event)
-                )
+                await manager.broadcast(event)
 
     except WebSocketDisconnect:
         manager.disconnect(ws)
