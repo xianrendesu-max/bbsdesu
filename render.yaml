@@ -1,0 +1,16 @@
+services:
+  - type: web
+    name: senin-chat
+    env: python
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn main:app --host 0.0.0.0 --port 10000
+    envVars:
+      - key: REDIS_URL
+        fromService:
+          name: senin-redis
+          type: redis
+
+  - type: redis
+    name: senin-redis
+    plan: free
