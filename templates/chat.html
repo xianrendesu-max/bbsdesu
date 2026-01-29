@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>仙人Chat</title>
+
+<style>
+body {
+  margin:0;
+  font-family: system-ui, "Noto Sans JP", sans-serif;
+  background:#f4f6fb;
+}
+.app {
+  max-width:800px;
+  margin:auto;
+  height:100vh;
+  display:flex;
+  flex-direction:column;
+}
+header {
+  background:#4f7cff;
+  color:#fff;
+  padding:14px;
+  font-size:20px;
+  font-weight:700;
+}
+main {
+  flex:1;
+  overflow:auto;
+  padding:12px;
+}
+.msg {
+  background:#fff;
+  border-radius:12px;
+  padding:10px;
+  margin-bottom:10px;
+  box-shadow:0 2px 6px rgba(0,0,0,.06);
+}
+.name {
+  font-weight:700;
+  color:#4f7cff;
+}
+footer {
+  display:flex;
+  gap:8px;
+  padding:10px;
+  background:#fff;
+  border-top:1px solid #ddd;
+}
+input, textarea {
+  border:1px solid #ccc;
+  border-radius:10px;
+  padding:8px;
+  font:inherit;
+}
+textarea {
+  flex:1;
+  resize:none;
+}
+button {
+  background:#4f7cff;
+  color:#fff;
+  border:none;
+  border-radius:10px;
+  padding:0 16px;
+  font-weight:700;
+}
+</style>
+</head>
+
+<body>
+<div class="app">
+<header>🧙‍♂️ 仙人Chat</header>
+<main id="messages"></main>
+<footer>
+  <input id="name" placeholder="名前">
+  <textarea id="text" placeholder="メッセージ"></textarea>
+  <button id="send">送信</button>
+</footer>
+</div>
+
+<script>
+const ws = new WebSocket(
+  (location.protocol === 'https:' ? 'wss://' : 'ws://')
+  + location.host + '/ws'
+);
+
+const messages = document.getElementById('messages');
+
+function add(name, text){
+  const d = document.createElement('div');
+  d.className = 'msg';
+  d.innerHTML = `<div class="name">${name}</div><div>${text}</div>`;
+  messages.appendChild(d);
+  messages.scrollTop = messages.scrollHeight;
+}
+
+fetch('/api/messages')
+  .then(r=>r.json())
+  .then(d=>d.forEach(m=>add(m.username, m.message)));
+
+ws.onmessage = e => {
+  const d = JSON.parse(e.data);
+  if(d.type === 'new_message'){
+    add(d.username, d.message);
+  }
+};
+
+document.getElementById('send').onclick = () => {
+  const name = document.getElementById('name').value || '名無し';
+  const text = document.getElementById('text').value.trim();
+  if(!text) return;
+
+  ws.send(JSON.stringify({
+    type:'new_message',
+    username:name,
+    message:text,
+    ip:'client'
+  }));
+
+  document.getElementById('text').value='';
+};
+</script>
+</body>
+</html>
